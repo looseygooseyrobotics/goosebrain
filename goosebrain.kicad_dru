@@ -1,0 +1,53 @@
+(version 1)
+
+# JLCPCB routed-edge limit is 0.3 mm copper to board edge. The board setup
+# value (0.5 mm) can be rewritten by tools that save the board, so the
+# JLC value lives here.
+(rule "JLC copper to edge"
+	(constraint edge_clearance (min 0.3mm)))
+
+# USB pairs (USB_P/N, the MCU-side halves USB_MCU_P/N through R44/R45, USBA_P/N and USBA_GPIO_P/N):
+# 0.124 mm tracks at a 0.127 mm gap give 90 ohm differential on F.Cu over In1 (and on B.Cu over In4), on JLC's
+# standard 6-layer 1.6 mm stackup JLC06161H-3313 (3313 prepreg 0.0994 mm, 1 oz outer copper, finished 1.54 mm).
+# The numbers come from JLC's impedance calculator (Differential Pair, non coplanar, L1 referenced to L2, spacing
+# 0.127 mm -> width 0.1234 mm), checked on 2026-10-20. Order with impedance control on (free on 6 layers).
+# The USB class clearance is only for the partner track; everything else keeps 0.2 mm.
+(rule "USB pair to other nets"
+	(condition "A.NetClass == 'USB' && B.NetClass != 'USB'")
+	(constraint clearance (min 0.2mm)))
+(rule "USB pair geometry"
+	(condition "A.NetClass == 'USB'")
+	(constraint track_width (min 0.11mm) (opt 0.124mm) (max 0.2mm)))
+# The P/N names make each pair a KiCad differential pair, so the diff-pair router (6) routes at this gap.
+# Where a pair must split to reach pads (USB-C receptacle flip pins, the ESD arrays, the series resistors, vias),
+# the segments touching a "USB fan-out" rule area are exempt; the coupled runs between them are checked.
+(rule "USB 90 ohm diff pairs"
+	(condition "A.NetClass == 'USB' && A.inDiffPair('*') && !A.intersectsArea('USB fan-out')")
+	(constraint diff_pair_gap (min 0.11mm) (opt 0.127mm) (max 0.145mm)))
+
+# Power widths: any track drawn on these nets must be at least this wide. Pours and zones are exempt.
+(rule "Pack path width"
+	(condition "A.NetClass == 'Pack'")
+	(constraint track_width (min 1.0mm)))
+(rule "5 V width"
+	(condition "A.NetClass == '5V'")
+	(constraint track_width (min 0.5mm)))
+(rule "GND and motor width"
+	(condition "(A.NetClass == 'GND' || A.NetClass == 'Motor') && !A.intersectsArea('VREG corner')")
+	(constraint track_width (min 0.4mm)))
+
+# Default (signal) class: 0.15 mm track and space (JLC 4-layer allows 0.09 mm). Signals keep 0.2 mm from the
+# buck's switch node, which sits in the Default class by name. (The Pack, 5V, GND, Motor, Rail and USB classes are
+# 0.2 mm already; KiCad takes the larger of the two classes.)
+(rule "Signals to switch nodes"
+	(condition "A.NetClass == 'Default' && B.NetName == 'Net-(U4-SW)'")
+	(constraint clearance (min 0.2mm)))
+
+# RP2354 core supply pins (tools/route_recipe.py vreg()): the on-chip regulator isn't used (an external LDO feeds
+# DVDD), but VREG_VIN, VREG_PGND and VREG_FB still sit at the 0.4 mm pin pitch. Their stubs (C85's pins and FB's
+# GND stub) are only as wide as the 0.2 mm pads, so inside the "VREG corner" rule area 0.15 mm spacing applies, the
+# same as the Default class (JLC's 6-layer minimum is 0.09 mm), and the stubs are exempt from the GND width rule.
+# The USB rules above still hold for the USB pair beside it.
+(rule "RP2354 core supply pin spacing"
+	(condition "A.intersectsArea('VREG corner') && B.intersectsArea('VREG corner') && A.NetClass != 'USB' && B.NetClass != 'USB'")
+	(constraint clearance (min 0.15mm)))
